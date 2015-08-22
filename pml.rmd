@@ -1,0 +1,115 @@
+---
+title: "Practical Machine Learning course assignment"
+output: html_document
+---
+* Executive summary
+
+The goal of this project is to predict the manner in which test subjects did the exercise: exactly according to speccification (classe=A) or lowered the quality of the performance in 5 different manners (classes B-E), as recorded by wearable accelerometers. We conclude that random forest model predicts the manner of exercise with 98.4% accuracy from the accelerometer data. We also provide the model answer for 20 test cases.
+
+* Data
+We downloaded the data from http://groupware.les.inf.puc-rio.br/har.
+
+```{r}
+library(caret)
+setwd('C:/Users/Public/R/coursera/PML')
+test<-read.csv('pml-testing.csv')
+test<-read.csv('pml-testing.csv', na.string="NA")
+train<-read.csv('pml-training.csv', na.string="NA")
+#head(train)
+```
+
+A lot of variables have only NA values. Let us take a list
+
+```{r}
+g<-ls.str(train)
+```
+
+and shorten overall set of variables by omitting all variables having only NA or "#DIV/0!"/0 levels. We leave out all variables representing higher moments: "var", "stdev" skewness" and "kurtosis", as well as "amplitude", "avg" and "min", "max" variables.
+
+```{r}
+myvars <- names(train) %in% c( 
+"X", "user_name", "raw_timestamp_part_1", "raw_timestamp_part_2", "cvtd_timestamp", "new_window", "num_window", 
+"accel_arm_x", "accel_arm_y", "accel_arm_z", "accel_belt_x", "accel_belt_y", "accel_belt_z", 
+"accel_dumbbell_x", "accel_dumbbell_y", "accel_dumbbell_z", "accel_forearm_x", "accel_forearm_y", "accel_forearm_z", 
+"gyros_arm_x", "gyros_arm_y", "gyros_arm_z", "gyros_belt_x", "gyros_belt_y", "gyros_belt_z", 
+"gyros_dumbbell_x", "gyros_dumbbell_y", "gyros_dumbbell_z", "gyros_forearm_x", "gyros_forearm_y", "gyros_forearm_z", 
+"magnet_arm_x", "magnet_arm_y", "magnet_arm_z", "magnet_belt_x", "magnet_belt_y", "magnet_belt_z", "magnet_dumbbell_x", 
+"magnet_dumbbell_y", "magnet_dumbbell_z", "magnet_forearm_x", "magnet_forearm_y", "magnet_forearm_z", 
+"pitch_arm", "pitch_belt", "pitch_dumbbell", "pitch_forearm", "roll_arm", "roll_belt", "roll_dumbbell", "roll_forearm", 
+"total_accel_arm", "total_accel_belt", "total_accel_dumbbell", "total_accel_forearm", 
+"yaw_arm", "yaw_belt", "yaw_dumbbell", "yaw_forearm", 
+"classe")
+newtrain <- train[myvars]
+```
+
+Next we add a few more variables about date and time when the excercise was performed, convert several variables to number (that data input automatically understood as factor), and rearrange data columns for easier prediction.
+```{r}
+newtrain$datetime<-strptime(as.character(newtrain$cvtd_timestamp), "%d/%m/%Y %H:%M")
+newtrain$h.str <- as.numeric(format(newtrain$datetime, "%H")) + as.numeric(format(newtrain$datetime, "%M"))/60
+newtrain$wd <- as.numeric(format(newtrain$datetime,"%w"))
+newtrain$mth <- as.numeric(format(newtrain$datetime,"%m"))
+
+newtrain$new_window<-ifelse(newtrain$new_window=="no",0,1)
+trx<-newtrain[,c(6:59,62:64,60)]
+#head(trx)
+```
+Dataset trx is properly structured for predicting and has 64 variables: classe as dependent variable and 63 predictors. Classe is distributed more or less equally and simple random sampling should be adequate to divide trx into training and testing datasets.
+```{r}
+x<-table(trx$classe)
+barplot(x, main="Counts of classe in training dataset")
+```
+Next we split the data into testing and training datasets. Let us take only 20% of data into the training dataset because original dataset is large (19622 observations).
+```{r}
+set.seed(5541)
+intrain<-createDataPartition(y=trx$classe, p=0.2,list=FALSE)
+training<-trx[intrain,]
+testing<-trx[-intrain,]
+```
+training dataset now has 3927 observations and 64 variables: classe as dependent variable and 63 predictors.
+
+Let us run random forests algorithm from caret package. We will apply 5-fold cross validation. 
+```{r}
+modFit_rf<-train(classe~. , data=training, method="rf", preProcess = c("center", "scale"), trControl=trainControl(method="cv",number=5))
+modFit_rf
+```
+Prediction on testing dataset evaluates the power of random forest classification
+```{r}
+pred_rf<-predict(modFit_rf, testing)
+table(pred_rf, testing$classe)
+```
+
+Model's accuracy is extremely high, 98.3% of classe's are classified correctly.
+
+Let us also try boosting algorithm on the same data.
+```{r}
+modFit_ada<-train(classe~. , data=training, method="gbm", preProcess = c("center", "scale"), trControl=trainControl(method="cv",number=5), verbose=FALSE)
+modFit_ada
+
+```
+Prediction on testing dataset evaluates the power of random forest classification
+```{r}
+pred_ada<-predict(modFit_ada, testing)
+table(pred_ada, testing$classe)
+```
+
+Accuracy of boosting model is slightly lower, 97.4%. Still it is very high and it confirms that models are able to discriminate very well betweent the quality of excersis. Accuracy of the random forest is close to perfect, therefore we will use random forest for predicting the original 20 test cases.
+```{r}
+print(modFit_rf$finalModel)
+```{r}
+
+```{r}
+test<-read.csv('pml-testing.csv', na.string="NA")
+#cut variable list
+test <- test[myvars]
+#transform data
+test$datetime<-strptime(as.character(test$cvtd_timestamp), "%d/%m/%Y %H:%M")
+test$h.str <- as.numeric(format(test$datetime, "%H")) + as.numeric(format(test$datetime, "%M"))/60
+test$wd <- as.numeric(format(test$datetime,"%w"))
+test$mth <- as.numeric(format(test$datetime,"%m"))
+test$new_window<-as.numeric(ifelse(test$new_window=="no",0,1))
+test<-test[,c(6:59,62:64,60)]
+#make prediction
+test$pred_rf_test<-predict(modFit_rf, test)
+#output
+test[names(test) %in% c("problem_id", "pred_rf_test")]
+```
